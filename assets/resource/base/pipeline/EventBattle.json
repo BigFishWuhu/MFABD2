@@ -34,6 +34,7 @@
             "[JumpBack]Event_Battle_Hub",
             "[JumpBack]Event_Mamono_Hub",
             "[JumpBack]Event_MiniGame_Hub",
+            "[JumpBack]SeasonEvent_MiniGame_Quiz_HUB",
             "[JumpBack]SeasonEvent_ReMamono_Hub",
             "Global_ToHomePage_Enter",
             "Global_ToHomePage"
@@ -89,7 +90,7 @@
         ]
     },
     "Event_MiniGame_Hub": {
-        "desc": "跑酷小游戏快速刷取.放在最后,会附带回到主页。enabled是interface的抓手,判据在Event_MiniGame_Switch。timeout必写——next只剩这一项,闸不命中时不写就会空转到默认20秒才退栈",
+        "desc": "跑酷小游戏快速刷取,结束后回到主页。enabled是interface的抓手,判据在Event_MiniGame_Switch。timeout必写——next只剩这一项,闸不命中时不写就会空转到默认20秒才退栈",
         "enabled": true,
         "max_hit": 1,
         "timeout": 1,
@@ -98,7 +99,7 @@
         ]
     },
     "Event_MiniGame_Switch": {
-        "desc": "战场探索存档闸:本游戏日已刷完则不命中,上级next就此耗尽,退栈换下一个子模块",
+        "desc": "跑酷小游戏存档闸:沿用Event_MiniGame旧存档键,与问答独立。本游戏日已刷完则不命中,退栈换下一个子模块",
         "recognition": "Custom",
         "custom_recognition": "CheckCoolDown",
         "custom_recognition_param": {
@@ -498,6 +499,351 @@
         ],
         "action": "Click",
         "post_delay": 2000
+    },
+    "SeasonEvent_MiniGame_Quiz_HUB": {
+        "desc": "问答小游戏入口,enabled由interface小游戏选项控制;当天完成时快速退栈",
+        "enabled": true,
+        "max_hit": 1,
+        "timeout": 1,
+        "next": [
+            "SeasonEvent_MiniGame_Quiz_CheckDaily"
+        ]
+    },
+    "SeasonEvent_MiniGame_Quiz_CheckDaily": {
+        "desc": "问答小游戏每日存档检查,与跑酷独立;强制重跑时由interface改为直接命中",
+        "recognition": "Custom",
+        "custom_recognition": "CheckCoolDown",
+        "custom_recognition_param": {
+            "card_name": "Event_MiniGame_Quiz",
+            "cycle_type": "g_daily"
+        },
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "SeasonEvent_MiniGame_Quiz_PreEntry",
+            "[JumpBack]Global_ToHomePage"
+        ]
+    },
+    "SeasonEvent_MiniGame_Quiz_PreEntry": {
+        "recognition": "And",
+        "all_of": [
+            "Rec_HomePage_GA_Ocr",
+            "Rec_HomePage_GA_Clr"
+        ],
+        "timeout": 3000,
+        "next": [
+            "SeasonEvent_MiniGame_Quiz_Entry"
+        ]
+    },
+    "SeasonEvent_MiniGame_Quiz_Entry": {
+        "desc": "问答小活动的入口在主页面",
+        "recognition": "OCR",
+        "roi": [
+            916,
+            347,
+            145,
+            222
+        ],
+        "expected": "小活动",
+        "action": "Click",
+        "target_offset": [
+            0,
+            -10,
+            0,
+            0
+        ],
+        "post_wait_freezes": {
+            "time": 1000,
+            "target": [
+                916,
+                347,
+                145,
+                222
+            ]
+        },
+        "next": [
+            "SeasonEvent_MiniGame_Quiz_GoAction",
+            "SeasonEvent_MiniGame_Quiz_Entry",
+            "[JumpBack]Global_WaitingForLoading"
+        ]
+    },
+    "SeasonEvent_MiniGame_Quiz_GoAction": {
+        "recognition": "OCR",
+        "roi": [
+            116,
+            87,
+            1062,
+            582
+        ],
+        "expected": "^答题",
+        "action": "Click",
+        "post_wait_freezes": {
+            "time": 800,
+            "target": [
+                489,
+                120,
+                338,
+                473
+            ]
+        },
+        "next": [
+            "SeasonEvent_MiniGame_Quiz_SubMenu",
+            "SeasonEvent_MiniGame_Quiz_GoAction"
+        ]
+    },
+    "SeasonEvent_MiniGame_Quiz_SubMenu": {
+        "recognition": "OCR",
+        "roi": [
+            442,
+            125,
+            101,
+            57
+        ],
+        "expected": ["能力测试"],
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "[JumpBack]SeasonEvent_MiniGame_Quiz_Enter",
+            "SeasonEvent_MiniGame_Quiz_Swipe"
+        ]
+    },
+    "SeasonEvent_MiniGame_Quiz_Enter": {
+        "desc": "开始答题",
+        "recognition": "OCR",
+        "roi": [
+            706,
+            176,
+            135,
+            391
+        ],
+        "expected": "开始答题",
+        "order_by": "Vertical",
+        "action": "Click",
+        "post_delay": 3000,
+        "next": [
+            "[JumpBack]Global_WaitingForLoading",
+            "SeasonEvent_MiniGame_Quiz_SandBox",
+            "SeasonEvent_MiniGame_Quiz_Enter"
+        ]
+    },
+    "SeasonEvent_MiniGame_Quiz_Swipe": {
+        "desc": "上滑答题列表,画面变化走next;连续3次不变走on_error记录当天完成并回主页。此出口也接收SmartAction的截图或操作失败",
+        "action": "Custom",
+        "custom_action": "SmartAction",
+        "custom_action_param": {
+            "proxy_node": "Agt_Proxy_Blank",
+            "proxy_override": {
+                "action": "Swipe",
+                "begin": [
+                    530,
+                    530
+                ],
+                "end": [
+                    530,
+                    230
+                ],
+                "duration": 500,
+                "end_hold": 800,
+                "pre_delay": 0,
+                "post_delay": 0
+            },
+            "detect_roi": [
+                446,
+                182,
+                95,
+                374
+            ],
+            "threshold": 2.0,
+            "settle_delay": 500,
+            "on_changed": "next",
+            "on_unchanged": "error",
+            "unchanged_streak": 3
+        },
+        "timeout": 5000,
+        "next": [
+            "SeasonEvent_MiniGame_Quiz_SubMenu"
+        ],
+        "on_error": [
+            "SeasonEvent_MiniGame_Quiz_End",
+            "Global_Null"
+        ]
+    },
+    "SeasonEvent_MiniGame_Quiz_End": {
+        "desc": "问答列表滑动结束出口,记录问答当天完成后回主页;不修改跑酷完成记录",
+        "pre_delay": 0,
+        "action": "Custom",
+        "custom_action": "MarkComplete",
+        "custom_action_param": {
+            "card_name": "Event_MiniGame_Quiz",
+            "cycle_type": "g_daily"
+        },
+        "post_delay": 0,
+        "next": [
+            "Global_ToHomePage"
+        ],
+        "focus": "EM.活动.问答小游戏完成,已记录"
+    },
+    "SeasonEvent_MiniGame_Quiz_SandBox": {
+        "desc": "出题界面只有这个特征",
+        "recognition": "Custom",
+        "custom_recognition": "HSVShapeMatching",
+        "custom_recognition_param": {
+            "target_node": "Agt_<MiniGame_Quiz_SandBox>_Tpl",
+            "hsv_ranges": [
+                {
+                    "lower": [
+                        0,
+                        0,
+                        200
+                    ],
+                    "upper": [
+                        180,
+                        30,
+                        255
+                    ]
+                }
+            ],
+            "edge_assist": true,
+            "edge_threshold": 15
+        },
+        "pre_delay": 500,
+        "action": "Click",
+        "target": [
+            1,
+            405,
+            5,
+            5
+        ],
+        "repeat": 6,
+        "repeat_delay": 150,
+        "post_delay": 500,
+        "next": [
+            "SeasonEvent_MiniGame_Quiz_Reward",
+            "[JumpBack]SeasonEvent_MiniGame_Quiz_SkipTalk",
+            "[JumpBack]SeasonEvent_MiniGame_Quiz_Switch1",
+            "[JumpBack]SeasonEvent_MiniGame_Quiz_Switch2"
+        ]
+    },
+    "Agt_<MiniGame_Quiz_SandBox>_Tpl": {
+        "recognition": "TemplateMatch",
+        "roi": [
+            1,
+            1,
+            231,
+            124
+        ],
+        "template": [
+            "Binary/BackBut_Bin.png"
+        ]
+    },
+    "SeasonEvent_MiniGame_Quiz_Switch1": {
+        "recognition": "And",
+        "all_of": [
+            {
+                "sub_name": "OCR",
+                "recognition": "Or",
+                "any_of": [
+                    {
+                        "sub_name": "QuizCandidateOCR",
+                        "recognition": "OCR",
+                        "roi": [
+                            457,
+                            195,
+                            369,
+                            340
+                        ],
+                        "expected": "^.{2,12}$",
+                        "order_by": "Horizontal"
+                    }
+                ]
+            },
+            "Sub_Ocr_Enable_Clr"
+        ],
+        "action": "Click",
+        "post_delay": 1000
+    },
+    "SeasonEvent_MiniGame_Quiz_Switch2": {
+        "recognition": "And",
+        "all_of": [
+            {
+                "sub_name": "OCR",
+                "recognition": "Or",
+                "any_of": [
+                    {
+                        "sub_name": "QuizCandidateOCR",
+                        "recognition": "OCR",
+                        "roi": [
+                            457,
+                            195,
+                            369,
+                            340
+                        ],
+                        "expected": "^.{2,12}$",
+                        "order_by": "Horizontal",
+                        "index": -1
+                    }
+                ]
+            },
+            "Sub_Ocr_Enable_Clr"
+        ],
+        "action": "Click",
+        "post_delay": 1000
+    },
+    "SeasonEvent_MiniGame_Quiz_SkipTalk": {
+        "recognition": "And",
+        "all_of": [
+            "SeasonEvent_MiniGame_Quiz_SandBox",
+            {
+                "recognition": "Custom",
+                "custom_recognition": "NotRecognition",
+                "custom_recognition_param": {
+                    "node": "Agt_<Quiz_SkipTalk>_OCR"
+                }
+            }
+        ],
+        "pre_delay": 500,
+        "action": "Click",
+        "target": [
+            1,
+            405,
+            5,
+            5
+        ],
+        "repeat": 6,
+        "repeat_delay": 150,
+        "post_delay": 500
+    },
+    "Agt_<Quiz_SkipTalk>_OCR": {
+        "recognition": "OCR",
+        "roi": [
+            457,
+            195,
+            369,
+            340
+        ],
+        "expected": "^.{2,12}$"
+    },
+    "SeasonEvent_MiniGame_Quiz_Reward": {
+        "desc": "获得奖励",
+        "recognition": "Or",
+        "any_of": [
+            "Rec_Reward_Ocr"
+        ],
+        "action": "Click",
+        "post_wait_freezes": {
+            "time": 500,
+            "target": [
+                496,
+                279,
+                299,
+                165
+            ],
+            "timeout": 1000
+        },
+        "next": [
+            "SeasonEvent_MiniGame_Quiz_Reward",
+            "Global_Null"
+        ]
     },
     "Event_NoHaveAP": {
         "desc": "点击后跳二级菜单,AP不足.(这是必要的)",
@@ -1518,10 +1864,10 @@
         "next": [
             "Event_MiniGame_End"
         ],
-        "focus": "EM.活动.小游戏模块结束"
+        "focus": "EM.活动.跑酷小游戏模块结束"
     },
     "Event_MiniGame_End": {
-        "desc": "战场探索的正常出口,打完标再走公共复位。Event_MiniGame_CLR_Unable那条(按钮灰着)不在这里打标——按钮不可用未必等于今天刷完了,宁可下次重跑",
+        "desc": "跑酷小游戏的正常出口,沿用Event_MiniGame旧存档键,打完标再走公共复位。Event_MiniGame_CLR_Unable那条(按钮灰着)不在这里打标——按钮不可用未必等于今天刷完了,宁可下次重跑",
         "pre_delay": 0,
         "action": "Custom",
         "custom_action": "MarkComplete",
@@ -1533,7 +1879,7 @@
         "next": [
             "Global_ToHomePage"
         ],
-        "focus": "EM.活动.战场探索完成,已记录"
+        "focus": "EM.活动.跑酷小游戏完成,已记录"
     },
     "Event_Battle_BattleStatus_Unable": {
         "recognition": "Or",
