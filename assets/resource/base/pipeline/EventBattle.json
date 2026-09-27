@@ -33,7 +33,7 @@
         "next": [
             "[JumpBack]Event_Battle_Hub",
             "[JumpBack]Event_Mamono_Hub",
-            "[JumpBack]Event_MiniGame_Hub",
+            "[JumpBack]Event_MiniGame_Run_Hub",
             "[JumpBack]SeasonEvent_MiniGame_Quiz_HUB",
             "[JumpBack]SeasonEvent_ReMamono_Hub",
             "Global_ToHomePage_Enter",
@@ -89,16 +89,16 @@
             "[JumpBack]Global_BackPageHub_Once"
         ]
     },
-    "Event_MiniGame_Hub": {
-        "desc": "跑酷小游戏快速刷取,结束后回到主页。enabled是interface的抓手,判据在Event_MiniGame_Switch。timeout必写——next只剩这一项,闸不命中时不写就会空转到默认20秒才退栈",
+    "Event_MiniGame_Run_Hub": {
+        "desc": "跑酷小游戏快速刷取,结束后回到主页。enabled是interface的抓手,判据在Event_MiniGame_Run_Switch。timeout必写——next只剩这一项,闸不命中时不写就会空转到默认20秒才退栈",
         "enabled": true,
         "max_hit": 1,
         "timeout": 1,
         "next": [
-            "Event_MiniGame_Switch"
+            "Event_MiniGame_Run_Switch"
         ]
     },
-    "Event_MiniGame_Switch": {
+    "Event_MiniGame_Run_Switch": {
         "desc": "跑酷小游戏存档闸:沿用Event_MiniGame旧存档键,与问答独立。本游戏日已刷完则不命中,退栈换下一个子模块",
         "recognition": "Custom",
         "custom_recognition": "CheckCoolDown",
@@ -109,7 +109,7 @@
         "pre_delay": 0,
         "post_delay": 0,
         "next": [
-            "SeasonEvent_MiniGame_Start",
+            "SeasonEvent_MiniGame_Run_Start",
             "[JumpBack]Global_WaitingForLoading",
             "[JumpBack]Event_GoinEvent",
             "[JumpBack]Global_BackPageHub_Once"
@@ -1691,31 +1691,31 @@
             "SeasonEvent_Mamono_HP_Right_Gray"
         ]
     },
-    "SeasonEvent_MiniGame_Start": {
-        "desc": "小活动入口,先寻找赛季内的'战场探索'.| JB会返回,需要插入中断维持环境,否则可能超时",
+    "SeasonEvent_MiniGame_Run_Start": {
+        "desc": "跑酷小游戏入口,先寻找赛季内的'战场探索'.| JB会返回,需要插入中断维持环境,否则可能超时",
         "recognition": "And",
         "all_of": [
             "Event_Event_Main"
         ],
         "anchor": {
-            "MiniGame_Return": "Event_MiniGame_SubToMain"
+            "MiniGame_Run_Return": "Event_MiniGame_Run_SubToMain"
         },
         "next": [
             "Event_MiniGame_Run_Entry",
-            "SeasonEvent_MiniGame_BackToMain",
+            "SeasonEvent_MiniGame_Run_BackToMain",
             "[JumpBack]Global_BackPageHub_Once",
             "[JumpBack]Global_WaitingForLoading"
         ]
     },
-    "SeasonEvent_MiniGame_BackToMain": {
-        "desc": "小活动入口,其次返回主界面,查找主页的'小活动'入口",
+    "SeasonEvent_MiniGame_Run_BackToMain": {
+        "desc": "跑酷小游戏入口,其次返回主界面,查找主页的'小活动'入口",
         "recognition": "And",
         "all_of": [
             "Event_GoinEvent"
         ],
         "timeout": 2000,
         "next": [
-            "Event_Goin_MiniGame",
+            "Event_MiniGame_Run_Goin",
             "[JumpBack]Global_WaitingForLoading"
         ],
         "on_error": [
@@ -1723,9 +1723,9 @@
             "Global_Null_Exception",
             "Global_Null_Panic"
         ],
-        "focus": "尝试查找小活动"
+        "focus": "跑酷小游戏-尝试查找主页小活动"
     },
-    "Event_Goin_MiniGame": {
+    "Event_MiniGame_Run_Goin": {
         "recognition": "OCR",
         "roi": [
             901,
@@ -1744,13 +1744,13 @@
             0
         ],
         "anchor": {
-            "MiniGame_Return": ""
+            "MiniGame_Run_Return": ""
         },
         "post_delay": 2000,
         "next": [
             "Event_MiniGame_Run_Entry"
         ],
-        "focus": "发现小活动,进入"
+        "focus": "跑酷小游戏-发现主页小活动,进入"
     },
     "Event_MiniGame_Run_Entry": {
         "desc": "跑酷小游戏入口,识别并点击'战场探索'",
@@ -1787,12 +1787,12 @@
         "anchor": "Ocr_clr",
         "timeout": 5000,
         "next": [
-            "Event_MiniGame_CLR_Enable",
-            "Event_MiniGame_CLR_Unable"
+            "Event_MiniGame_Run_CLR_Enable",
+            "Event_MiniGame_Run_CLR_Unable"
         ],
         "focus": "跑酷小游戏-快速完成OCR"
     },
-    "Event_MiniGame_CLR_Enable": {
+    "Event_MiniGame_Run_CLR_Enable": {
         "recognition": "And",
         "all_of": [
             "Anc_Ocr_Enable_Clr"
@@ -1800,19 +1800,19 @@
         "action": "Click",
         "post_delay": 2000,
         "next": [
-            "Event_MiniGame_Confirm",
-            "Event_MiniGame_CLR_Enable"
+            "Event_MiniGame_Run_Confirm",
+            "Event_MiniGame_Run_CLR_Enable"
         ],
         "focus": "快速完成-CLR亮色可点击"
     },
-    "Event_MiniGame_CLR_Unable": {
+    "Event_MiniGame_Run_CLR_Unable": {
         "recognition": "And",
         "all_of": [
             "Anc_Ocr_Unable_Clr"
         ],
         "timeout": 4000,
         "next": [
-            "[Anchor]MiniGame_Return"
+            "[Anchor]MiniGame_Run_Return"
         ],
         "on_error": [
             "Global_ToHomePage",
@@ -1821,15 +1821,15 @@
         ],
         "focus": "快速完成-CLR暗色不可点击"
     },
-    "Event_MiniGame_SubToMain": {
-        "desc": "[锚点单向]极端情况,赛季和主页同时有活动,此处让先进性的赛季流程回到主页,再识别小游戏",
+    "Event_MiniGame_Run_SubToMain": {
+        "desc": "[锚点单向]极端情况,赛季和主页同时有活动,此处让先进行的赛季流程回到主页,再识别跑酷小游戏",
         "next": [
-            "SeasonEvent_MiniGame_BackToMain",
+            "SeasonEvent_MiniGame_Run_BackToMain",
             "[JumpBack]Global_WaitingForLoading",
             "[JumpBack]Global_BackPageHub_Once"
         ]
     },
-    "Event_MiniGame_Confirm": {
+    "Event_MiniGame_Run_Confirm": {
         "desc": "快速战斗-确认",
         "recognition": "OCR",
         "roi": [
@@ -1844,10 +1844,10 @@
         "action": "Click",
         "post_delay": 5000,
         "next": [
-            "Event_MiniGameRewardBack"
+            "Event_MiniGame_Run_RewardBack"
         ]
     },
-    "Event_MiniGameRewardBack": {
+    "Event_MiniGame_Run_RewardBack": {
         "desc": "奖励返回",
         "recognition": "Or",
         "any_of": [
@@ -1856,18 +1856,18 @@
         "action": "Click",
         "post_delay": 2000,
         "next": [
-            "Event_MiniGameBack"
+            "Event_MiniGame_Run_Back"
         ]
     },
-    "Event_MiniGameBack": {
+    "Event_MiniGame_Run_Back": {
         "desc": "战场探索-返回",
         "next": [
-            "Event_MiniGame_End"
+            "Event_MiniGame_Run_End"
         ],
         "focus": "EM.活动.跑酷小游戏模块结束"
     },
-    "Event_MiniGame_End": {
-        "desc": "跑酷小游戏的正常出口,沿用Event_MiniGame旧存档键,打完标再走公共复位。Event_MiniGame_CLR_Unable那条(按钮灰着)不在这里打标——按钮不可用未必等于今天刷完了,宁可下次重跑",
+    "Event_MiniGame_Run_End": {
+        "desc": "跑酷小游戏的正常出口,沿用Event_MiniGame旧存档键,打完标再走公共复位。Event_MiniGame_Run_CLR_Unable那条(按钮灰着)不在这里打标——按钮不可用未必等于今天刷完了,宁可下次重跑",
         "pre_delay": 0,
         "action": "Custom",
         "custom_action": "MarkComplete",

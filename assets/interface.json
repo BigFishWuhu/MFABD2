@@ -594,7 +594,7 @@
                         "Event_Mamono_Hub": {
                             "enabled": false
                         },
-                        "Event_MiniGame_Hub": {
+                        "Event_MiniGame_Run_Hub": {
                             "enabled": false
                         },
                         "SeasonEvent_MiniGame_Quiz_HUB": {
@@ -633,10 +633,10 @@
                     "name": "战场探索",
                     "label": "小游戏（跑酷 / 问答）",
                     "pipeline_override": {
-                        "Event_MiniGame_Hub": {
+                        "Event_MiniGame_Run_Hub": {
                             "enabled": true
                         },
-                        "Event_MiniGame_Switch": {
+                        "Event_MiniGame_Run_Switch": {
                             "recognition": "DirectHit"
                         },
                         "SeasonEvent_MiniGame_Quiz_HUB": {
