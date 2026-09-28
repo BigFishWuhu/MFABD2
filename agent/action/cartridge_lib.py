@@ -697,7 +697,7 @@ class CooldownManager:
             # 生成 Key 并写入
             storage_key = self._get_storage_key(c_name, s_name)
             if not PersistentStore.set(storage_key, now_str):
-                utils.mfaalog.error(f"[Py] 完成标记保存失败: {storage_key}")
+                utils.mfaalog.error(f"[周期检查] 完成标记保存失败: {storage_key}")
                 return False
             success_count += 1
             
