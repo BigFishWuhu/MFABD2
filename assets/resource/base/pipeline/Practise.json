@@ -12,7 +12,7 @@
     "Practise_Merchant_Menu_Return": {
         "recognition": "Or",
         "any_of": [
-            "Arbitrage_Merchant_Menu"
+            "Arbitrage_Merchant_Egress"
         ],
         "action": "Click",
         "target": [

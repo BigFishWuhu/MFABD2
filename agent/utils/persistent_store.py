@@ -24,6 +24,10 @@ _READ_RETRY_DELAY = 0.2
 # 4. 多账号隔离: 通过 switch_account(id) 动态切换读写文件
 # ==============================================================================
 
+class AccountNotReadyError(RuntimeError):
+    """No verified account owns this storage access."""
+
+
 class PersistentStore:
     APP_NAME = "MFABD2"
     
@@ -31,8 +35,12 @@ class PersistentStore:
     _initialized = False
     _storage_policy: StoragePolicy | None = None
     _mode = None
-    _current_account_id = "0"  # 默认 0 号存档，接收到的原始 ID
-    _sanitized_account_id = "0" # 清洗后的安全 ID，与实际文件名对应
+    _current_account_id = None
+    _sanitized_account_id = None
+    _mounted_account_id = None
+    _account_ready = False
+    _bound_task_key = None
+    _directory_initialized = False
     # 存档暂时不可读(权限/占用)时置位。此时 load() 返回空视图,若不拦住 save(),
     # set() 的 load→mutate→save 会把这个空视图写回去,真实数据就被抹了。
     _degraded_readonly = False
@@ -47,38 +55,64 @@ class PersistentStore:
     @classmethod
     def configure_storage(cls, policy: StoragePolicy) -> None:
         """The entrypoint supplies its resolved policy before the first load."""
-        if cls._initialized and policy != cls._storage_policy:
+        if cls._directory_initialized and policy != cls._storage_policy:
             raise RuntimeError("Configure storage before loading a save")
         cls._storage_policy = policy
 
     @classmethod
-    def switch_account(cls, account_id):
-        """
-        【外部调用接口】切换当前操作的账号存档。
-        建议在 Pipeline 的起始“检查点”节点调用此方法。
-        """
-        # 容错处理：如果是 None 或空，视为 0 号
-        if account_id is None or str(account_id).strip() == "":
-            safe_id = "0"
-        else:
-            safe_id = str(account_id).strip()
+    def block_account(cls, task_key=None):
+        """Revoke access without creating, restoring or modifying any account file."""
+        cls._account_ready = False
+        cls._bound_task_key = task_key
+        cls._current_account_id = None
+        cls._sanitized_account_id = None
+        cls._initialized = False
+        cls.FILE_PATH = cls.BACKUP_PATH = None
 
-        # 如果发现传入的账号 ID 与当前不同，触发重置机制
-        if safe_id != cls._current_account_id:
-            logger.info(f"[Py] 🔄 存档系统检测到账号切换指令: 原账号=[{cls._current_account_id}] -> 新请求=[{safe_id}]")
-            cls._current_account_id = safe_id
-            cls._initialized = False  # 关键：强制下次重新挂载路径
-            # 降级只读描述的是「当前这个账号的存档此刻拿不到」，跟着账号一起翻篇。
-            # 不重置的话，A 号的一次读失败会把随后 B 号的写也一并锁死 —— 而 B 号若是
-            # 全新存档，load() 会从初始化分支提前返回，下面那些重置点一个都到不了。
+    @classmethod
+    def is_bound(cls, task_key, account_id):
+        return (cls._account_ready and cls._initialized
+                and cls._bound_task_key == task_key and cls._current_account_id == account_id)
+
+    @classmethod
+    def bind_account(cls, account_id, task_key):
+        """Bind a verified choice to its root task; mounting does not load a save."""
+        if account_id is None or not str(account_id).strip():
+            cls.block_account(task_key)
+            raise ValueError("An empty account is not the default account")
+        safe_id = str(account_id).strip()
+        cls._account_ready = False
+        cls._bound_task_key = None
+        if safe_id != cls._mounted_account_id:
+            cls._initialized = False
             cls._degraded_readonly = False
-            cls._init_paths()         # 立即重新初始化并挂载
+        cls._current_account_id = safe_id
+        try:
+            cls._init_paths()
+        except Exception:
+            cls.block_account(task_key)
+            raise
+        cls._mounted_account_id = safe_id
+        cls._bound_task_key = task_key
+        cls._account_ready = True
+
+    @classmethod
+    def switch_account(cls, account_id):
+        """Explicit selection for standalone callers; None never means account 0."""
+        cls.bind_account(account_id, None)
+
+    @classmethod
+    def _require_account(cls):
+        if not cls._account_ready:
+            raise AccountNotReadyError("账号尚未确定，禁止读取账号存档")
 
     @classmethod
     def _init_paths(cls):
         """根据启动策略挂载当前账号路径。"""
         if cls._initialized:
             return
+        if cls._current_account_id is None:
+            raise AccountNotReadyError("账号尚未确定")
 
         # 1. 根据当前 _current_account_id 动态生成文件名和净化 ID
         if cls._current_account_id == "0":
@@ -95,8 +129,24 @@ class PersistentStore:
             
             # 记录原始 ID 与实际文件名之间的映射，方便排查问题
             if original_id != clean_id:
-                logger.info(f"[Py] ⚠️ 账号 ID 已清洗: 原始='{original_id}', 清洗后='{clean_id}', 映射文件={cls.FILE_NAME}")
+                logger.info(f"[PersistentStore] ⚠️ 账号 ID 已清洗: 原始='{original_id}', 清洗后='{clean_id}', 映射文件={cls.FILE_NAME}")
 
+        cls.prepare_directory()
+        cls.FILE_PATH = cls.CONFIG_DIR / cls.FILE_NAME
+        cls.BACKUP_PATH = cls.CONFIG_DIR / cls.BAK_NAME
+
+        cls._initialized = True
+
+        # 状态汇报 (使用清洗后的 _sanitized_account_id)
+        mode_str = {'global': '系统全局模式', 'portable': '绿色便携模式', 'host': '宿主指定模式'}[cls._mode]
+        logger.info(f"[PersistentStore] 💾 存档挂载完成 | 账号ID: {cls._sanitized_account_id} | 模式: {mode_str}")
+        logger.info(f"[PersistentStore] 📂 存档路径: {cls.FILE_PATH}")
+
+    @classmethod
+    def prepare_directory(cls):
+        """Validate storage policy without mounting or loading account 0."""
+        if cls._directory_initialized:
+            return cls.CONFIG_DIR
         # 获取项目根目录
         base_dir = Path(__file__).resolve().parent.parent.parent
 
@@ -123,23 +173,16 @@ class PersistentStore:
             except OSError:
                 if portable_root is None:
                     raise  # Explicit directories must not fall back to another save.
-                logger.warning("[Py] ⚠️ 全局目录读写测试失败，自动降级为【绿色便携模式】。")
+                logger.warning("[PersistentStore] ⚠️ 全局目录读写测试失败，自动降级为【绿色便携模式】。")
                 cls._set_portable_mode(portable_root)
                 
-        cls._initialized = True
-        
-        # 状态汇报 (使用清洗后的 _sanitized_account_id)
-        mode_str = {'global': '系统全局模式', 'portable': '绿色便携模式', 'host': '宿主指定模式'}[cls._mode]
-        logger.info(f"[Py] 💾 存档挂载完成 | 账号ID: {cls._sanitized_account_id} | 模式: {mode_str}")
-        logger.info(f"[Py] 📂 存档路径: {cls.FILE_PATH}")
+        cls._directory_initialized = True
+        return cls.CONFIG_DIR
 
     @classmethod
     def _set_portable_mode(cls, base_dir: Path):
         """设定为绿色便携模式"""
-        cls._mode = 'portable'
-        cls.CONFIG_DIR = base_dir
-        cls.FILE_PATH = cls.CONFIG_DIR / cls.FILE_NAME
-        cls.BACKUP_PATH = cls.CONFIG_DIR / cls.BAK_NAME
+        cls._set_directory(base_dir, 'portable')
 
     @classmethod
     def _set_directory(cls, directory: Path, mode: str) -> None:
@@ -151,12 +194,11 @@ class PersistentStore:
             os.fsync(probe.fileno())
         cls._mode = mode
         cls.CONFIG_DIR = directory
-        cls.FILE_PATH = directory / cls.FILE_NAME
-        cls.BACKUP_PATH = directory / cls.BAK_NAME
 
     @classmethod
     def load(cls) -> dict:
         """【智能读取】优先读主文件，坏了读备份，完全没有则初始化新档"""
+        cls._require_account()
         cls._init_paths()
 
         assert cls.FILE_PATH is not None
@@ -164,7 +206,7 @@ class PersistentStore:
         
         # 💡纯新账号：主文件和备份都不存在，直接静默初始化
         if not cls.FILE_PATH.exists() and not cls.BACKUP_PATH.exists():
-            logger.info(f"[Py] 🌱 账号 [{cls._sanitized_account_id}] 为全新存档，正在初始化...")
+            logger.info(f"[PersistentStore] 🌱 账号 [{cls._sanitized_account_id}] 为全新存档，正在初始化...")
             empty_data = {}
             if cls._save_file(cls.FILE_PATH, empty_data):
                 # 空档落盘成功 = 这个路径此刻确实可写，先前的降级态到此为止。
@@ -176,9 +218,9 @@ class PersistentStore:
         if not cls.FILE_PATH.exists() and cls.BACKUP_PATH.exists():
              try:
                  shutil.copy2(cls.BACKUP_PATH, cls.FILE_PATH)
-                 logger.info(f"[Py] ✅ 账号 {cls._sanitized_account_id} 已从备份自动生成主存档！")
+                 logger.info(f"[PersistentStore] ✅ 账号 {cls._sanitized_account_id} 已从备份自动生成主存档！")
              except Exception as e:
-                 logger.error(f"[Py] ❌ 恢复备份失败: {e}")
+                 logger.error(f"[PersistentStore] ❌ 恢复备份失败: {e}")
 
         data, status = cls._try_load_file(cls.FILE_PATH)
         if status == "ok" and data is not None:
@@ -193,22 +235,22 @@ class PersistentStore:
             # 降级为只读空视图并锁写,让本轮跑完,下次再读。
             cls._degraded_readonly = True
             logger.error(
-                f"[Py] ⛔ 账号 {cls._sanitized_account_id} 存档暂时不可读，"
+                f"[PersistentStore] ⛔ 账号 {cls._sanitized_account_id} 存档暂时不可读，"
                 f"本轮降级为只读空视图且不会回写。请检查文件占用或权限。"
             )
             return {}
 
         # 缺失与损坏是两回事,日志别混着说(原先文件不存在也会报"主存档损坏")
         if status == "missing":
-            logger.warning(f"[Py] ⚠️ 主存档缺失: {cls.FILE_PATH}")
+            logger.warning(f"[PersistentStore] ⚠️ 主存档缺失: {cls.FILE_PATH}")
         else:
-            logger.warning(f"[Py] ⚠️ 主存档损坏: {cls.FILE_PATH}")
+            logger.warning(f"[PersistentStore] ⚠️ 主存档损坏: {cls.FILE_PATH}")
 
         if cls.BACKUP_PATH.exists():
-            logger.info(f"[Py] 🔄 正在尝试从备份恢复: {cls.BACKUP_PATH}")
+            logger.info(f"[PersistentStore] 🔄 正在尝试从备份恢复: {cls.BACKUP_PATH}")
             bak_data, bak_status = cls._try_load_file(cls.BACKUP_PATH)
             if bak_status == "ok" and bak_data is not None:
-                logger.info("[Py] ✅ 备份恢复成功！")
+                logger.info("[PersistentStore] ✅ 备份恢复成功！")
                 cls._degraded_readonly = False
                 cls._save_file(cls.FILE_PATH, bak_data)
                 return bak_data
@@ -216,12 +258,12 @@ class PersistentStore:
                 # 主档已不可用、备份又读不到 —— 此时重置为空会把仅存的线索一并覆盖。
                 cls._degraded_readonly = True
                 logger.error(
-                    f"[Py] ⛔ 账号 {cls._sanitized_account_id} 主存档不可用且备份暂时不可读，"
+                    f"[PersistentStore] ⛔ 账号 {cls._sanitized_account_id} 主存档不可用且备份暂时不可读，"
                     f"本轮降级为只读空视图且不会回写。"
                 )
                 return {}
 
-        logger.error(f"[Py] ❌ 账号 {cls._sanitized_account_id} 存档彻底损坏且无有效备份，重置为空。")
+        logger.error(f"[PersistentStore] ❌ 账号 {cls._sanitized_account_id} 存档彻底损坏且无有效备份，重置为空。")
         cls._quarantine(cls.FILE_PATH)   # 覆盖前先把坏档留一份，便于事后人工抢救
         cls._degraded_readonly = False
         empty_data = {}
@@ -253,10 +295,10 @@ class PersistentStore:
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
             except json.JSONDecodeError as e:
-                logger.error(f"[Py] ❌ 存档 JSON 解析失败 {path}: {e}")
+                logger.error(f"[PersistentStore] ❌ 存档 JSON 解析失败 {path}: {e}")
                 return None, "corrupt"
             except UnicodeDecodeError as e:
-                logger.error(f"[Py] ❌ 存档编码错误 {path}: {e}")
+                logger.error(f"[PersistentStore] ❌ 存档编码错误 {path}: {e}")
                 return None, "corrupt"
             except OSError as e:
                 last_err = e
@@ -265,12 +307,12 @@ class PersistentStore:
                 continue
 
             if not isinstance(data, dict):
-                logger.error(f"[Py] ❌ 存档内容不是有效的字典结构: {path}")
+                logger.error(f"[PersistentStore] ❌ 存档内容不是有效的字典结构: {path}")
                 return None, "corrupt"
             return data, "ok"
 
         logger.error(
-            f"[Py] ❌ 存档重试 {_READ_RETRY_TIMES} 次仍不可读 {path}: {last_err}"
+            f"[PersistentStore] ❌ 存档重试 {_READ_RETRY_TIMES} 次仍不可读 {path}: {last_err}"
         )
         return None, "unreadable"
 
@@ -283,13 +325,15 @@ class PersistentStore:
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             dst = path.with_name(f"{path.name}.corrupt.{stamp}")
             os.replace(path, dst)
-            logger.warning(f"[Py] 📦 损坏的存档已留档: {dst}")
+            logger.warning(f"[PersistentStore] 📦 损坏的存档已留档: {dst}")
         except OSError as e:
-            logger.warning(f"[Py] 留档损坏存档失败（不影响后续流程）: {e}")
+            logger.warning(f"[PersistentStore] 留档损坏存档失败（不影响后续流程）: {e}")
 
     @classmethod
     def save(cls, data: dict):
         """【安全写入】写主文件 -> 成功 -> 覆盖备份"""
+        if not cls._account_ready:
+            return False
         cls._init_paths()
         assert cls.FILE_PATH is not None
         assert cls.BACKUP_PATH is not None
@@ -298,7 +342,7 @@ class PersistentStore:
         # 空视图 —— 放行就会把 {唯一这个键} 写回去,真实存档里其余的键全没了。
         if cls._degraded_readonly:
             logger.error(
-                f"[Py] ⛔ 账号 {cls._sanitized_account_id} 存档处于不可读降级态，"
+                f"[PersistentStore] ⛔ 账号 {cls._sanitized_account_id} 存档处于不可读降级态，"
                 f"已拒绝本次写入以免覆盖真实数据。"
             )
             return False
@@ -307,7 +351,7 @@ class PersistentStore:
             try:
                 shutil.copy2(cls.FILE_PATH, cls.BACKUP_PATH)
             except Exception as e:
-                logger.warning(f"[Py] 备份更新失败 (不影响主流程): {e}")
+                logger.warning(f"[PersistentStore] 备份更新失败 (不影响主流程): {e}")
             return True
         return False
 
@@ -328,7 +372,7 @@ class PersistentStore:
             os.replace(tmp_path, path)
             return True
         except Exception as e:
-            logger.error(f"[Py] 写入文件失败 {path}: {e}")
+            logger.error(f"[PersistentStore] 写入文件失败 {path}: {e}")
             try:
                 tmp_path.unlink(missing_ok=True)
             except OSError:
@@ -342,6 +386,8 @@ class PersistentStore:
 
     @classmethod
     def set(cls, key: str, value):
+        if not cls._account_ready:
+            return False
         data = cls.load()
         data[key] = value
         return cls.save(data)
@@ -356,6 +402,8 @@ class SharedStore(PersistentStore):
     """
 
     _initialized = False
+    # Shared observations do not depend on an account selection.
+    _account_ready = True
     _mode = None
     _current_account_id = "shared"
     _sanitized_account_id = "shared"
@@ -375,10 +423,7 @@ class SharedStore(PersistentStore):
     @classmethod
     def _init_paths(cls):
         """跟随账号存档选定的全局/便携目录，但使用固定共享文件名。"""
-        PersistentStore._init_paths()
-        config_dir = PersistentStore.CONFIG_DIR
-        if config_dir is None:
-            raise RuntimeError("账号存档尚未挂载，无法确定共享存档目录")
+        config_dir = PersistentStore.prepare_directory()
 
         if cls._initialized and cls.CONFIG_DIR == config_dir:
             return
@@ -391,5 +436,5 @@ class SharedStore(PersistentStore):
         cls._degraded_readonly = False
 
         mode_str = {'global': '系统全局模式', 'portable': '绿色便携模式', 'host': '宿主指定模式'}[cls._mode]
-        logger.info(f"[Py] 🌐 共享存档挂载完成 | 模式: {mode_str}")
-        logger.info(f"[Py] 📂 共享存档路径: {cls.FILE_PATH}")
+        logger.info(f"[SharedStore] 🌐 共享存档挂载完成 | 模式: {mode_str}")
+        logger.info(f"[SharedStore] 📂 共享存档路径: {cls.FILE_PATH}")
