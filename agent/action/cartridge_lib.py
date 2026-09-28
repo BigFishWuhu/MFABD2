@@ -251,6 +251,9 @@ CYCLE_STRATEGIES = {
 
 
 class CooldownManager:
+    # 账号存档里周期记录独占的一层：{"卡带名@周期策略": 上次完成的本地时间}
+    STORE_KEY = "cycles"
+
     # ✅ 既然 PersistentStore 是静态类，这里甚至不需要 __init__
     def __init__(self):
         #性能优化：将本地时区在类初始化时缓存下来，避免每次重复调用系统 API
@@ -259,6 +262,10 @@ class CooldownManager:
     def _get_storage_key(self, card_name, strategy_name):
         """生成唯一存储键名 (防止不同策略共用同一个名字导致冲突)"""
         return f"{card_name}@{strategy_name}"
+
+    def _load_marks(self):
+        marks = PersistentStore.load().get(self.STORE_KEY)
+        return marks if isinstance(marks, dict) else {}
 
     def _get_local_timezone(self):
         """获取电脑当前的本地时区"""
@@ -400,7 +407,7 @@ class CooldownManager:
         结果展示统一交给调用方，保留 quiet 参数兼容原调用方式。
 
         store / reset_cache 只在批量下由 _check_batch 传入:
-        · store       已 load 好的存档快照。PersistentStore.get() 每次都会读盘
+        · store       已读好的周期记录快照。不传时每次都会读盘
                       并解析 JSON,33 张卡就是 33 次文件 IO,快照把它压成 1 次。
         · reset_cache 同一 strategy_name 的刷新点在一批内是同一个值,算一次即可。
                       值为 None 表示这个策略上面已经算崩过,别再重复打一遍堆栈。
@@ -411,10 +418,8 @@ class CooldownManager:
         """
         # --- 读取数据库 ---
         storage_key = self._get_storage_key(card_name, strategy_name)
-        if store is not None:
-            last_run_str = store.get(storage_key, None)
-        else:
-            last_run_str = PersistentStore.get(storage_key, None)
+        marks = store if store is not None else self._load_marks()
+        last_run_str = marks.get(storage_key)
 
         # --- 计算服务器刷新时间 ---
         if reset_cache is not None and strategy_name in reset_cache:
@@ -546,7 +551,7 @@ class CooldownManager:
 
         # 整批共用一份存档快照与策略缓存,见 _check_one 的 docstring。
         # 快照是本次判定的一致视图 —— 期间没有写入,不存在读到半旧半新的问题。
-        store = PersistentStore.load()
+        store = self._load_marks()
         reset_cache = {}
 
         for item in targets:
@@ -684,6 +689,11 @@ class CooldownManager:
         # 获取当前时间 (所有任务统一使用同一个完成时间)
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         success_count = 0
+        # 整批读一次、写一次：要么全部记上，要么一条都不记
+        data = PersistentStore.load()
+        marks = data.get(self.STORE_KEY)
+        if not isinstance(marks, dict):
+            marks = data[self.STORE_KEY] = {}
 
         for item in task_list:
             # 提取名称，如果没有 card_name 则跳过该项
@@ -696,20 +706,20 @@ class CooldownManager:
 
             # 生成 Key 并写入
             storage_key = self._get_storage_key(c_name, s_name)
-            if not PersistentStore.set(storage_key, now_str):
-                utils.mfaalog.error(f"[周期检查] 完成标记保存失败: {storage_key}")
-                return False
+            marks[storage_key] = now_str
             success_count += 1
-            
+
             # 打印单条详细日志 (可选)
             utils.mfaalog.debug(f"[周期检查] 标记更新: {storage_key}")
 
         # --- 最终日志 ---
-        if success_count > 0:
-            utils.mfaalog.debug(f"[周期检查] ✅ 批量标记完成: 已更新 {success_count} 个任务的时间戳 -> {now_str}")
-            return True
-        else:
+        if success_count == 0:
             return False
+        if not PersistentStore.save(data):
+            utils.mfaalog.error(f"[周期检查] 完成标记保存失败：本批 {success_count} 项均未记录")
+            return False
+        utils.mfaalog.debug(f"[周期检查] ✅ 批量标记完成: 已更新 {success_count} 个任务的时间戳 -> {now_str}")
+        return True
 
 manager = CooldownManager()
 
