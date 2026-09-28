@@ -41,45 +41,16 @@ jobs:
             tag="${GITHUB_REF#refs/tags/}"
             version_type="release"
           else
-            # 获取最新的正式版本标签
-            base_tag=$(git tag -l "v*" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
-            
-            # 如果没有找到纯版本号标签，使用默认值
-            if [ -z "$base_tag" ] || [[ "$base_tag" != v*.*.* ]]; then
-              base_tag="v0.0.0"
-            fi
-            
-            commit_short=$(git rev-parse --short HEAD)
-            date_suffix=$(date +"%y%m%d")
-            
-           # 判断版本类型
-            # 优先判断 Alpha
-            if [ "$VERSION_TYPE" = "alpha" ]; then
-               # 内测版：在基础版本上增加 2 个补丁版本号 (Base + 2)
-               # 修改点：将 $3+1 改为 $3+2
-              incremented_tag=$(echo "$base_tag" | awk -F. '{printf "%s.%s.%s", $1, $2, $3+2}')
-              tag="${incremented_tag}-alpha.${date_suffix}.${commit_short}"
-              version_type="alpha"
-
-            # 原有的 Beta 判断
-            elif [ "$VERSION_TYPE" = "beta" ]; then
-              # 公测版：在基础版本上增加 1 个补丁版本号 (Base + 1)
-              incremented_tag=$(echo "$base_tag" | awk -F. '{printf "%s.%s.%s", $1, $2, $3+1}')
-              tag="${incremented_tag}-beta.${date_suffix}.${commit_short}"
-              version_type="beta"
-
-            # 原有的 CI 判断 (else 分支)
-            else
-              tag="${base_tag}-ci.${date_suffix}.${commit_short}"
-              version_type="ci"
-            fi
+            case "$VERSION_TYPE" in
+              alpha|beta) version_type="$VERSION_TYPE" ;;
+              *) version_type="ci" ;;
+            esac
+            # 规则全在 version_rules.py：基线取最新正式版（公测 +1、内测 +2 个补丁号），
+            # 公测/内测的序号按已有标签取最大值 +1；产出不比同基线已有标签新时直接失败。
+            tag=$(python3 scripts/version_rules.py next "$version_type")
           fi
 
-          # 添加调试信息
-          echo "Base tag: $base_tag"
           echo "Generated tag: $tag"
-          echo "Commit short: $commit_short"
-          echo "Date suffix: $date_suffix"
           echo "Version type: $version_type"
 
           echo "tag=$tag" | tee -a $GITHUB_OUTPUT
@@ -828,7 +799,7 @@ jobs:
             --jq '.workflow_run_id')
           [[ "$run_id" =~ ^[0-9]+$ ]] || { echo "Missing Android workflow run ID"; exit 1; }
           echo "Android build: https://github.com/$GITHUB_REPOSITORY/actions/runs/$run_id" >> "$GITHUB_STEP_SUMMARY"
-          gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status --interval 30
+          gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status --interval 10
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
           echo "identity=$identity" >> "$GITHUB_OUTPUT"
 
@@ -888,10 +859,24 @@ jobs:
     # 任一依赖失败、取消或跳过时，沿用 needs 默认行为停止发布。
     needs: [meta, install, android, changelog]
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        # 默认 shell 已带 -e，显式写 bash 再补上 pipefail。
+        shell: bash
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_TAG: ${{ needs.meta.outputs.tag }}
+      SOURCE_SHA: ${{ github.sha }}
+      ANDROID_IDENTITY: ${{ needs.android.outputs.identity }}
+      # 原有预发布判定原样保留（beta/alpha/普通 CI 为预发布，手动 ci_as_stable 除外），上传与公开两步共用。
+      RELEASE_PRERELEASE: ${{ contains(needs.meta.outputs.tag, '-beta') || contains(needs.meta.outputs.tag, '-alpha') || (contains(needs.meta.outputs.tag, '-ci') && !(github.event_name == 'workflow_dispatch' && github.event.inputs.ci_as_stable == 'true')) }}
     permissions:
       contents: write
       actions: write
     steps:
+      # 只取 scripts/release_guard.py；它的离线测试已在 install.yml 入口跑过。
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
       - name: Get current timestamp
         id: get_time
         run: echo "time=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
@@ -936,21 +921,20 @@ jobs:
                   try:
                       with f.open("rb") as fh:
                           head = fh.read(4)
-                  except OSError:
-                      continue
+                  except OSError as error:
+                      raise SystemExit(f"::error::无法读取待发布文件 {f}: {error}") from error
                   # 二进制看魔数，脚本看 shebang 或后缀；
                   # 按内容判定省得维护一份必然会漏的文件名清单
                   if head in MAGIC or head[:2] == b"#!" or f.suffix in (".sh", ".command"):
                       f.chmod(f.stat().st_mode | 0o755)
                       n += 1
               print(f"{pkg.name}: 恢复执行位 {n} 个")
+              if n == 0:
+                  raise SystemExit(f"::error::{pkg.name} 无可执行文件，打包布局可能已变更")
               total += n
 
           if not pkgs:
-              print("::warning::未找到 macos/linux 产物目录，跳过执行位恢复")
-          elif total == 0:
-              # 一个都没命中说明产物布局变了，别让它静默通过——这正是上次翻车的方式
-              raise SystemExit("::error::unix 产物无一文件被赋予执行位，打包布局可能已变更")
+              raise SystemExit("::error::未找到 macos/linux 产物目录")
           print(f"合计恢复 {total} 个")
           PY
 
@@ -1016,7 +1000,12 @@ jobs:
                   stream.write(f"apk_name={apk.name}\n")
           PY
 
-      - name: Create GitHub Release
+      - name: Verify local release assets and draft state
+        run: python3 scripts/release_guard.py prepare
+
+      # 只传到草稿：上传中途失败或被取消，也不会出现公开的缺件版本。
+      - name: Upload assets to draft release
+        id: draft_release
         uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           files: |
@@ -1035,10 +1024,15 @@ jobs:
             安卓：`${{ steps.android.outputs.apk_name }}`，安装编号 `${{ steps.android.outputs.version_code }}`。
             覆盖升级按这个数字判断新旧，与上面的显示版本无关；编号只增不减，装回更小的编号需要卸载重装。
 
-          draft: false
-          prerelease: ${{ contains(needs.meta.outputs.tag, '-beta') || contains(needs.meta.outputs.tag, '-alpha') || (contains(needs.meta.outputs.tag, '-ci') && !(github.event_name == 'workflow_dispatch' && github.event.inputs.ci_as_stable == 'true')) }}
+          draft: true
+          prerelease: ${{ env.RELEASE_PRERELEASE == 'true' }}
         env: # 添加环境变量以支持高限额API调用
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify uploaded assets and publish release
+        env:
+          RELEASE_ID: ${{ steps.draft_release.outputs.id }}
+        run: python3 scripts/release_guard.py publish
 
       - name: Trigger MirrorChyanUploading
         if: github.repository_owner == 'sunyink' && ((needs.meta.outputs.is_tag_push == 'true') || contains(needs.meta.outputs.tag, '-beta') || contains(needs.meta.outputs.tag, '-alpha'))
@@ -1050,6 +1044,11 @@ jobs:
           echo "安全触发镜像服务: 版本=$tag"
           gh workflow run --repo $GITHUB_REPOSITORY --ref ${{ github.ref }} mirrorchyan_release.yml -f tag=$tag
           gh workflow run --repo $GITHUB_REPOSITORY --ref ${{ github.ref }} mirrorchyan_release_note.yml -f tag=$tag
+
+      # 本 job 失败或被取消时删掉本次草稿，重跑从头上传；已公开的 Release 不动。
+      - name: Remove unpublished draft
+        if: failure() || cancelled()
+        run: python3 scripts/release_guard.py cleanup
 
   notify:
     needs: [meta, install, release]

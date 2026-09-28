@@ -356,12 +356,8 @@
         "timeout": 5000,
         "next": [
             "PVP_AutoBattleMAX_CK",
-            "PVP_AutoBattleMAX"
-        ],
-        "on_error": [
-            "PVP_AutoBattleStart",
-            "Global_Null_Exception",
-            "Global_Null_Panic"
+            "PVP_AutoBattleMAX",
+            "PVP_AutoBattleStart"
         ]
     },
     "PVP_AutoBattleMAX_BackUp": {
@@ -387,12 +383,8 @@
         "timeout": 5000,
         "next": [
             "PVP_AutoBattleMAX_CK",
-            "PVP_AutoBattleMAX"
-        ],
-        "on_error": [
-            "PVP_AutoBattleStart",
-            "Global_Null_Exception",
-            "Global_Null_Panic"
+            "PVP_AutoBattleMAX",
+            "PVP_AutoBattleStart"
         ]
     },
     "PVP_AutoBattleMAX_CK": {
@@ -403,14 +395,15 @@
             31,
             42
         ],
+        "method": 40,
         "lower": [
-            218,
-            218,
-            205
+            0,
+            0,
+            174
         ],
         "upper": [
-            255,
-            255,
+            40,
+            24,
             255
         ],
         "count": 500,
@@ -704,7 +697,7 @@
         "focus": "PM.PVP-AP不足以执行计划"
     },
     "PVP_AutoBattle_APShortage_Depleted": {
-        "desc": "此时AP为零,结束",
+        "desc": "此时AP为零,结束。数量统一去除额外库存(+数字)与空白,兼容ADB的0/40和PC的0/40 +668。",
         "recognition": "OCR",
         "roi": [
             1040,
@@ -723,6 +716,14 @@
             [
                 "O",
                 "0"
+            ],
+            [
+                "\\+.*$",
+                ""
+            ],
+            [
+                "\\s+",
+                ""
             ]
         ],
         "action": "Click",
@@ -735,7 +736,7 @@
         ]
     },
     "PVP_AutoBattle_APShortage_Remaining": {
-        "desc": "还有残余AP但是不够刷满目标倍数,改到1刷完",
+        "desc": "还有残余AP但是不够刷满目标倍数,改到1刷完。数量统一去除额外库存(+数字)与空白,兼容ADB的10/40和PC的10/40 +668。",
         "recognition": "OCR",
         "roi": [
             1040,
@@ -754,6 +755,14 @@
             [
                 "O",
                 "0"
+            ],
+            [
+                "\\+.*$",
+                ""
+            ],
+            [
+                "\\s+",
+                ""
             ]
         ],
         "action": "Click",
@@ -813,7 +822,7 @@
             }
         },
         "next": [
-            "PVP_TaskStart"
+            "PVP_AutoBattle_SucCK"
         ]
     },
     "PVP_BackPVEPage": {
@@ -836,6 +845,7 @@
         ],
         "expected": [
             "没有赛季奖励",
+            "沒有賽季獎勵",
             "error"
         ],
         "next": [
