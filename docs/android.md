@@ -17,7 +17,7 @@
 两端沿用同一个版本标签，并用 `source_sha` 锁定与桌面包相同的资源提交。
 `release_build=true` 保留安卓工作流自己的安装编号序列；`release` job 等待桌面、安卓和更新日志全部成功，
 再按安卓 job 返回的运行编号取回 APK、校验文件和构建元数据，
-核对提交、版本、文件名及摘要后，与桌面 ZIP 一起上传到新建的 Release。安卓失败或附件不匹配时停止发布。
+核对提交、版本、文件名及摘要后，与桌面 ZIP 一起上传到草稿，全部附件核验一致后才公开。安卓失败或附件不匹配时停止发布。
 发布通知等待发布步骤成功。旧安卓 ZIP 构建与镜像上传入口已停用，APK 直接作为发布附件，不再套一层 ZIP。
 APK 文件名为 `MFABD2-<项目版本>-android-arm64.apk`，与桌面 ZIP 同构；安装编号只放在同名的 `.apk.json` 里。
 首次接入时，应先将安卓工作流合入默认分支，再验收主流程的手动派发与发布上传；开发分支可手动触发安卓构建验证出包。
@@ -180,7 +180,7 @@ controller 声明，实际运行使用 AndroidNativeController；该版本未按
 
 ## 当前版号与发布阶段
 
-- 显示版本：有显式项目版本时原样保留，包括 `v4.3.19-beta.260909.abcdef`。普通开发构建沿用项目现有规则生成 `vX.Y.Z-ci.YYMMDD.sha`，提交末行的alpha/beta标记也按现行规则处理。
+- 显示版本：有显式项目版本时原样保留，包括 `v4.3.19-beta.3.260909.gabcdef0`。未指定时与桌面发版共用 `scripts/version_rules.py` 生成：普通开发构建为 `vX.Y.Z-ci.YYMMDD.sha`，提交末行带 alpha/beta 标记时预演本次发版会拿到的 `-beta.N.YYMMDD.gsha` 版号。
 - 系统内部 `versionCode`：`version_code_offset + GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT`。限制attempt为1至99、整体不超过2100000000，与SemVer、日期或SHA无关。
 - 正式、Beta、Alpha、CI 共用这一序列，不给渠道分配数字区间。新运行的编号大于之前所有运行的编号；同一次运行的重跑只增加末两位。重跑旧运行仍占旧编号区间，并不成为最新构建；需要将旧源码重新发行时，手动新建一次工作流运行，不使用旧运行的 Re-run。
 - 资源 interface.version 和 APK versionName 使用相同显示版本；versionCode 变化也触发 UI 资源重新解包。
