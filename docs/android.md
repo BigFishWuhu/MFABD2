@@ -9,22 +9,25 @@
 `.github/workflows/android.yml` 是安卓构建的唯一入口，推送 main 上的构建相关改动或手动触发后生成签名 Release APK。
 默认只上传 Actions 产物。手动传入已有 Release tag 作为 `version_name` 并开启 `publish`，
 才会将 APK、SHA256 文件和构建元数据附加到该 Release；不会创建 Release 或覆盖同名附件。
-主发布流程由独立的 `android` job 调用这一入口，在资源检查和安卓源码检查通过后，与 `install` 平台矩阵并行构建。
+主发布入口 `install.yml` 先判定通道，再调用 `install-build.yml` 完成整套构建。
+普通 CI 只取消同分支上一轮，公测、内测、正式各自跨分支取消本通道上一轮，四个通道互不取消。
+手动不勾发布选项归普通 CI，勾选 `ci_as_stable` 则归正式通道（仍保留 CI 版号和构建身份）。
+构建流程由独立的 `android` job 调用安卓入口，在资源检查和安卓源码检查通过后，与 `install` 平台矩阵并行构建。
 安卓 job 沿用原有发版条件：手动发版、版本标签推送、alpha / beta 发版才运行，普通 push 不通过主流程触发 APK。
 两端沿用同一个版本标签，并用 `source_sha` 锁定与桌面包相同的资源提交。
 `release_build=true` 保留安卓工作流自己的安装编号序列；`release` job 等待桌面、安卓和更新日志全部成功，
 再按安卓 job 返回的运行编号取回 APK、校验文件和构建元数据，
-核对提交、版本、文件名及摘要后，与桌面 ZIP 一起上传到新建的 Release。安卓失败或附件不匹配时停止发布。
+核对提交、版本、文件名及摘要后，与桌面 ZIP 一起上传到草稿，全部附件核验一致后才公开。安卓失败或附件不匹配时停止发布。
 发布通知等待发布步骤成功。旧安卓 ZIP 构建与镜像上传入口已停用，APK 直接作为发布附件，不再套一层 ZIP。
 APK 文件名为 `MFABD2-<项目版本>-android-arm64.apk`，与桌面 ZIP 同构；安装编号只放在同名的 `.apk.json` 里。
 首次接入时，应先将安卓工作流合入默认分支，再验收主流程的手动派发与发布上传；开发分支可手动触发安卓构建验证出包。
-发布构建按目标版本单独分组，不被开发分支的新推送取消；同一版本已有发布构建运行时，后续请求等待。
+独立的 `android.yml` 发布构建按目标版本单独分组，不被开发分支的新推送取消；同一版本已有发布构建运行时，后续请求等待。
 普通开发构建仍只保留同分支的最新运行。GitHub 默认每组只保留一个等待请求，不保证重复派发的请求全部执行。
 
 - MaaFwApp 固定 commit `f4f6f220e21e3a1b7b0cf5df4bdbe0ec04c668f7`。
 - **MaaFramework 版本没有一处是手写的。** 桌面那个由 `scripts/detect_maa_version.py` 下载根
   `requirements.txt` 钉住的 MFAAvalonia、用 ctypes 调其 `libMaaFramework.so` 的 `MaaVersion()`
-  读出，与 `install.yml` 的 meta job 同源；安卓那个由上游 MaaFwApp 的 `CORE_TAG` 决定。
+  读出，与 `install-build.yml` 的 meta job 同源；安卓那个由上游 MaaFwApp 的 `CORE_TAG` 决定。
   **两者当前差一个补丁号（桌面 5.12.2、安卓 5.12.3），这是有意接受的。**
   安卓侧的原生库 tag、pip 版本、`install.py` 参数、APK 校验期望值全部由**上游那个值**派生——
   上游会丢弃我们钉的 maafw 而用 agent core 自带的，跟着桌面走会让 APK 内部自相矛盾。
@@ -177,7 +180,7 @@ controller 声明，实际运行使用 AndroidNativeController；该版本未按
 
 ## 当前版号与发布阶段
 
-- 显示版本：有显式项目版本时原样保留，包括 `v4.3.19-beta.260909.abcdef`。普通开发构建沿用项目现有规则生成 `vX.Y.Z-ci.YYMMDD.sha`，提交末行的alpha/beta标记也按现行规则处理。
+- 显示版本：有显式项目版本时原样保留，包括 `v4.3.19-beta.3.260909.gabcdef0`。未指定时与桌面发版共用 `scripts/version_rules.py` 生成：普通开发构建为 `vX.Y.Z-ci.YYMMDD.sha`，提交末行带 alpha/beta 标记时预演本次发版会拿到的 `-beta.N.YYMMDD.gsha` 版号。
 - 系统内部 `versionCode`：`version_code_offset + GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT`。限制attempt为1至99、整体不超过2100000000，与SemVer、日期或SHA无关。
 - 正式、Beta、Alpha、CI 共用这一序列，不给渠道分配数字区间。新运行的编号大于之前所有运行的编号；同一次运行的重跑只增加末两位。重跑旧运行仍占旧编号区间，并不成为最新构建；需要将旧源码重新发行时，手动新建一次工作流运行，不使用旧运行的 Re-run。
 - 资源 interface.version 和 APK versionName 使用相同显示版本；versionCode 变化也触发 UI 资源重新解包。

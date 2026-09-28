@@ -121,12 +121,26 @@ pnpm prettier --write <file>
 - `HIGHLIGHT:` → 标为 💡 亮点功能
 - `Co-authored-by: 名字` → 列为协作者
 
-`.github/workflows/install.yml` 检测发版标记。**前两个只取提交信息的最后一行**
-（`tail -n1`），位置放错就不触发；第三个是全文匹配，写在哪儿都算：
+`.github/workflows/install.yml` 通过 `scripts/release_channel.py` 检测发版标记，再调用
+`install-build.yml` 完成检查、构建和发布。**前两个只取提交信息的最后一行**，
+位置放错就不触发；第三个是全文匹配，写在哪儿都算：
 
-- `[deploy-beta]` → beta 发布（`tail -n1`；历史用过 246 次，是常规发版手段）
-- `[deploy-alpha]` → alpha 发布（`tail -n1`）
-- `[deploy-sync]` → 交由 `dispatcher.yml` 分发（**全文 `contains`**，见 `install.yml` L53）
+- `[deploy-beta]` → beta 发布（是常规发版手段）
+- `[deploy-alpha]` → alpha 发布
+- `[deploy-sync]` → 交由 `dispatcher.yml` 分发（**全文 `contains`**）
+
+构建按四个通道取消上一轮：普通 CI 按分支隔离（PR 按编号），公测、内测、正式各自跨分支
+共享一个通道。手动不勾选发布选项归普通 CI；只勾 `ci_as_stable` 归正式通道，仍保留 CI 版号与身份。
+通道判定和版号生成共用同一次解析结果；不得用全文搜索替代最后一行标记，否则普通提交也可能取消发版。
+
+发布先传到**草稿**，`scripts/release_guard.py` 核对 10 个附件的名单、大小与 SHA-256 全部一致后才公开；
+release job 失败或被取消时删除本次草稿，已公开的 Release 不会被覆盖或撤回。
+
+公测、内测版号形如 `v4.4.6-beta.3.260927.g7973ea7a`，由 `scripts/version_rules.py next` 生成：
+基线取最新正式版（公测 +1、内测 +2 个补丁号），**序号**在同基线同通道内取已有标签最大值 +1，是唯一决定新旧的段；
+日期与哈希只供人读，哈希前的 `g` 防止它成为以 0 开头的纯数字段（SemVer 非法，客户端会当成无更新）。
+生成器拒绝产出不比同基线已有标签新的版号（例如同基线还留着旧式 `日期.哈希` 版号时），此时先发正式版换基线。
+**撤版只删 Release、不删标签**——标签一删序号会被复用，装过那一版的用户收不到同名的新构建。
 
 > 这三个标记会真的触发构建与发布。**除用户明确要求，不要写入提交信息。**
 
