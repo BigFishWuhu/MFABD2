@@ -94,7 +94,7 @@ def sync_from_context(context, where: str = "") -> bool:
 
         if not node:
             _warn_once(
-                f"[Py] ⚠️ 节点 {NODE_NAME} 不存在或读取为空{_suffix(where)}，"
+                f"[AccountSync] ⚠️ 节点 {NODE_NAME} 不存在或读取为空{_suffix(where)}，"
                 f"存档号维持当前值不变。请检查该节点是否被改名或删除。"
             )
             return False
@@ -107,7 +107,7 @@ def sync_from_context(context, where: str = "") -> bool:
 
         if not isinstance(custom_param, dict) or "account_id" not in custom_param:
             _warn_once(
-                f"[Py] ⚠️ 节点 {NODE_NAME} 未携带 custom_action_param.account_id"
+                f"[AccountSync] ⚠️ 节点 {NODE_NAME} 未携带 custom_action_param.account_id"
                 f"{_suffix(where)}，存档号维持当前值不变。"
             )
             return False
@@ -118,7 +118,7 @@ def sync_from_context(context, where: str = "") -> bool:
         return True
 
     except Exception as e:
-        _warn_once(f"[Py] ⚠️ 存档号同步失败{_suffix(where)}: {e}")
+        _warn_once(f"[AccountSync] ⚠️ 存档号同步失败{_suffix(where)}: {e}")
         return False
 
 

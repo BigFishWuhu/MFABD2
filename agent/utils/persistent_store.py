@@ -65,7 +65,7 @@ class PersistentStore:
 
         # 如果发现传入的账号 ID 与当前不同，触发重置机制
         if safe_id != cls._current_account_id:
-            logger.info(f"[Py] 🔄 存档系统检测到账号切换指令: 原账号=[{cls._current_account_id}] -> 新请求=[{safe_id}]")
+            logger.info(f"[PersistentStore] 🔄 存档系统检测到账号切换指令: 原账号=[{cls._current_account_id}] -> 新请求=[{safe_id}]")
             cls._current_account_id = safe_id
             cls._initialized = False  # 关键：强制下次重新挂载路径
             # 降级只读描述的是「当前这个账号的存档此刻拿不到」，跟着账号一起翻篇。
@@ -95,7 +95,7 @@ class PersistentStore:
             
             # 记录原始 ID 与实际文件名之间的映射，方便排查问题
             if original_id != clean_id:
-                logger.info(f"[Py] ⚠️ 账号 ID 已清洗: 原始='{original_id}', 清洗后='{clean_id}', 映射文件={cls.FILE_NAME}")
+                logger.info(f"[PersistentStore] ⚠️ 账号 ID 已清洗: 原始='{original_id}', 清洗后='{clean_id}', 映射文件={cls.FILE_NAME}")
 
         # 获取项目根目录
         base_dir = Path(__file__).resolve().parent.parent.parent
@@ -123,15 +123,15 @@ class PersistentStore:
             except OSError:
                 if portable_root is None:
                     raise  # Explicit directories must not fall back to another save.
-                logger.warning("[Py] ⚠️ 全局目录读写测试失败，自动降级为【绿色便携模式】。")
+                logger.warning("[PersistentStore] ⚠️ 全局目录读写测试失败，自动降级为【绿色便携模式】。")
                 cls._set_portable_mode(portable_root)
                 
         cls._initialized = True
         
         # 状态汇报 (使用清洗后的 _sanitized_account_id)
         mode_str = {'global': '系统全局模式', 'portable': '绿色便携模式', 'host': '宿主指定模式'}[cls._mode]
-        logger.info(f"[Py] 💾 存档挂载完成 | 账号ID: {cls._sanitized_account_id} | 模式: {mode_str}")
-        logger.info(f"[Py] 📂 存档路径: {cls.FILE_PATH}")
+        logger.info(f"[PersistentStore] 💾 存档挂载完成 | 账号ID: {cls._sanitized_account_id} | 模式: {mode_str}")
+        logger.info(f"[PersistentStore] 📂 存档路径: {cls.FILE_PATH}")
 
     @classmethod
     def _set_portable_mode(cls, base_dir: Path):
@@ -164,7 +164,7 @@ class PersistentStore:
         
         # 💡纯新账号：主文件和备份都不存在，直接静默初始化
         if not cls.FILE_PATH.exists() and not cls.BACKUP_PATH.exists():
-            logger.info(f"[Py] 🌱 账号 [{cls._sanitized_account_id}] 为全新存档，正在初始化...")
+            logger.info(f"[PersistentStore] 🌱 账号 [{cls._sanitized_account_id}] 为全新存档，正在初始化...")
             empty_data = {}
             if cls._save_file(cls.FILE_PATH, empty_data):
                 # 空档落盘成功 = 这个路径此刻确实可写，先前的降级态到此为止。
@@ -176,9 +176,9 @@ class PersistentStore:
         if not cls.FILE_PATH.exists() and cls.BACKUP_PATH.exists():
              try:
                  shutil.copy2(cls.BACKUP_PATH, cls.FILE_PATH)
-                 logger.info(f"[Py] ✅ 账号 {cls._sanitized_account_id} 已从备份自动生成主存档！")
+                 logger.info(f"[PersistentStore] ✅ 账号 {cls._sanitized_account_id} 已从备份自动生成主存档！")
              except Exception as e:
-                 logger.error(f"[Py] ❌ 恢复备份失败: {e}")
+                 logger.error(f"[PersistentStore] ❌ 恢复备份失败: {e}")
 
         data, status = cls._try_load_file(cls.FILE_PATH)
         if status == "ok" and data is not None:
@@ -193,22 +193,22 @@ class PersistentStore:
             # 降级为只读空视图并锁写,让本轮跑完,下次再读。
             cls._degraded_readonly = True
             logger.error(
-                f"[Py] ⛔ 账号 {cls._sanitized_account_id} 存档暂时不可读，"
+                f"[PersistentStore] ⛔ 账号 {cls._sanitized_account_id} 存档暂时不可读，"
                 f"本轮降级为只读空视图且不会回写。请检查文件占用或权限。"
             )
             return {}
 
         # 缺失与损坏是两回事,日志别混着说(原先文件不存在也会报"主存档损坏")
         if status == "missing":
-            logger.warning(f"[Py] ⚠️ 主存档缺失: {cls.FILE_PATH}")
+            logger.warning(f"[PersistentStore] ⚠️ 主存档缺失: {cls.FILE_PATH}")
         else:
-            logger.warning(f"[Py] ⚠️ 主存档损坏: {cls.FILE_PATH}")
+            logger.warning(f"[PersistentStore] ⚠️ 主存档损坏: {cls.FILE_PATH}")
 
         if cls.BACKUP_PATH.exists():
-            logger.info(f"[Py] 🔄 正在尝试从备份恢复: {cls.BACKUP_PATH}")
+            logger.info(f"[PersistentStore] 🔄 正在尝试从备份恢复: {cls.BACKUP_PATH}")
             bak_data, bak_status = cls._try_load_file(cls.BACKUP_PATH)
             if bak_status == "ok" and bak_data is not None:
-                logger.info("[Py] ✅ 备份恢复成功！")
+                logger.info("[PersistentStore] ✅ 备份恢复成功！")
                 cls._degraded_readonly = False
                 cls._save_file(cls.FILE_PATH, bak_data)
                 return bak_data
@@ -216,12 +216,12 @@ class PersistentStore:
                 # 主档已不可用、备份又读不到 —— 此时重置为空会把仅存的线索一并覆盖。
                 cls._degraded_readonly = True
                 logger.error(
-                    f"[Py] ⛔ 账号 {cls._sanitized_account_id} 主存档不可用且备份暂时不可读，"
+                    f"[PersistentStore] ⛔ 账号 {cls._sanitized_account_id} 主存档不可用且备份暂时不可读，"
                     f"本轮降级为只读空视图且不会回写。"
                 )
                 return {}
 
-        logger.error(f"[Py] ❌ 账号 {cls._sanitized_account_id} 存档彻底损坏且无有效备份，重置为空。")
+        logger.error(f"[PersistentStore] ❌ 账号 {cls._sanitized_account_id} 存档彻底损坏且无有效备份，重置为空。")
         cls._quarantine(cls.FILE_PATH)   # 覆盖前先把坏档留一份，便于事后人工抢救
         cls._degraded_readonly = False
         empty_data = {}
@@ -253,10 +253,10 @@ class PersistentStore:
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
             except json.JSONDecodeError as e:
-                logger.error(f"[Py] ❌ 存档 JSON 解析失败 {path}: {e}")
+                logger.error(f"[PersistentStore] ❌ 存档 JSON 解析失败 {path}: {e}")
                 return None, "corrupt"
             except UnicodeDecodeError as e:
-                logger.error(f"[Py] ❌ 存档编码错误 {path}: {e}")
+                logger.error(f"[PersistentStore] ❌ 存档编码错误 {path}: {e}")
                 return None, "corrupt"
             except OSError as e:
                 last_err = e
@@ -265,12 +265,12 @@ class PersistentStore:
                 continue
 
             if not isinstance(data, dict):
-                logger.error(f"[Py] ❌ 存档内容不是有效的字典结构: {path}")
+                logger.error(f"[PersistentStore] ❌ 存档内容不是有效的字典结构: {path}")
                 return None, "corrupt"
             return data, "ok"
 
         logger.error(
-            f"[Py] ❌ 存档重试 {_READ_RETRY_TIMES} 次仍不可读 {path}: {last_err}"
+            f"[PersistentStore] ❌ 存档重试 {_READ_RETRY_TIMES} 次仍不可读 {path}: {last_err}"
         )
         return None, "unreadable"
 
@@ -283,9 +283,9 @@ class PersistentStore:
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             dst = path.with_name(f"{path.name}.corrupt.{stamp}")
             os.replace(path, dst)
-            logger.warning(f"[Py] 📦 损坏的存档已留档: {dst}")
+            logger.warning(f"[PersistentStore] 📦 损坏的存档已留档: {dst}")
         except OSError as e:
-            logger.warning(f"[Py] 留档损坏存档失败（不影响后续流程）: {e}")
+            logger.warning(f"[PersistentStore] 留档损坏存档失败（不影响后续流程）: {e}")
 
     @classmethod
     def save(cls, data: dict):
@@ -298,7 +298,7 @@ class PersistentStore:
         # 空视图 —— 放行就会把 {唯一这个键} 写回去,真实存档里其余的键全没了。
         if cls._degraded_readonly:
             logger.error(
-                f"[Py] ⛔ 账号 {cls._sanitized_account_id} 存档处于不可读降级态，"
+                f"[PersistentStore] ⛔ 账号 {cls._sanitized_account_id} 存档处于不可读降级态，"
                 f"已拒绝本次写入以免覆盖真实数据。"
             )
             return False
@@ -307,7 +307,7 @@ class PersistentStore:
             try:
                 shutil.copy2(cls.FILE_PATH, cls.BACKUP_PATH)
             except Exception as e:
-                logger.warning(f"[Py] 备份更新失败 (不影响主流程): {e}")
+                logger.warning(f"[PersistentStore] 备份更新失败 (不影响主流程): {e}")
             return True
         return False
 
@@ -328,7 +328,7 @@ class PersistentStore:
             os.replace(tmp_path, path)
             return True
         except Exception as e:
-            logger.error(f"[Py] 写入文件失败 {path}: {e}")
+            logger.error(f"[PersistentStore] 写入文件失败 {path}: {e}")
             try:
                 tmp_path.unlink(missing_ok=True)
             except OSError:
@@ -391,5 +391,5 @@ class SharedStore(PersistentStore):
         cls._degraded_readonly = False
 
         mode_str = {'global': '系统全局模式', 'portable': '绿色便携模式', 'host': '宿主指定模式'}[cls._mode]
-        logger.info(f"[Py] 🌐 共享存档挂载完成 | 模式: {mode_str}")
-        logger.info(f"[Py] 📂 共享存档路径: {cls.FILE_PATH}")
+        logger.info(f"[SharedStore] 🌐 共享存档挂载完成 | 模式: {mode_str}")
+        logger.info(f"[SharedStore] 📂 共享存档路径: {cls.FILE_PATH}")

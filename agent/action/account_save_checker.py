@@ -40,5 +40,5 @@ class SwitchAccountCheckpointAction(CustomAction):
         try:
             sync_from_context(context, where="SwitchAccountCheckpoint")
         except Exception as e:
-            utils.mfaalog.error(f"[Py] ❌ 账号切换检查点执行异常: {e}")
+            utils.mfaalog.error(f"[SwitchAccountCheckpoint] ❌ 账号切换检查点执行异常: {e}")
         return True
